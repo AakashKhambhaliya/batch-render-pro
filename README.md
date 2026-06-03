@@ -16,23 +16,21 @@ A **Blender addon** for automated batch rendering with dynamic texture swapping,
 
 ## Installation
 
-**From the ZIP (recommended):**
-1. Download [`batch_render_pro.zip`](batch_render_pro.zip).
-2. Blender → **Edit → Preferences → Add-ons → Install…** and select the ZIP.
-3. Enable **Render: Batch Render Pro**.
+1. On this page click the green **`< > Code`** button → **Download ZIP**.
+2. In Blender open **Edit → Preferences → Add-ons**, click **Install…** (Blender 4.2+: **Install from Disk…**), and select the ZIP you just downloaded — no need to unzip it.
+3. Tick the checkbox to enable **Batch Render Pro**.
 4. Open the **N** sidebar in the 3D viewport and switch to the **Batch Render** tab.
 
-**From source:** copy the [`batch_render_pro/`](batch_render_pro) folder into your Blender `addons/` directory, then enable it in Preferences.
+> The addon lives at the repository root, so the ZIP that GitHub generates installs directly in Blender as-is.
 
 ## Project structure
 
 ```
-batch_render_pro/
-  __init__.py            Addon registration + hot-reload
-  properties.py          Scene properties / settings
-  operators/             Texture, queue, camera and render operators
-  panels/main_panel.py   Sidebar UI
-  utils/                 texture_swap, csv_import, naming helpers
+__init__.py            Addon registration + hot-reload
+properties.py          Scene properties / settings
+operators/             Texture, queue, camera and render operators
+panels/main_panel.py   Sidebar UI
+utils/                 texture_swap, csv_import, naming helpers
 ```
 
 ## License
