@@ -73,10 +73,18 @@ def _set_output_path(scene, entry, camera_item, queue_idx):
     """Set scene.render.filepath for the current frame."""
     props = scene.batch_render_pro
 
+    # Use the object that actually owns an enabled texture slot for {model};
+    # falling back to '' lets generate_output_path apply its 'model' default.
+    model_name = ''
+    for slot in props.texture_slots:
+        if slot.enabled and slot.object_name:
+            model_name = slot.object_name
+            break
+
     out_path = generate_output_path(
         output_dir=bpy.path.abspath(props.output_dir),
         naming_pattern=props.naming_pattern,
-        model_name=scene.objects[0].name if len(scene.objects) > 0 else 'model',
+        model_name=model_name,
         texture_path=entry.image_path,
         camera_name=camera_item.camera_name,
         entry_name=entry.name,
@@ -119,22 +127,23 @@ def _on_render_post(scene, *args):
     Rename the rendered file from Blender's numbered format to the
     user's naming pattern.
     """
-    props = scene.batch_render_pro
-    if not props.is_timeline_baked:
+    # Going through _get_frame_data ensures we only act when the timeline
+    # is actually baked AND the global queue matches this frame (e.g. it
+    # bails out cleanly if the .blend was reloaded with a stale baked flag).
+    entry, camera_item, queue_idx = _get_frame_data(scene)
+    if entry is None:
         return
 
-    expected_filepath = scene.render.filepath
     frame = scene.frame_current
 
-    extension = scene.render.image_settings.file_format.lower()
-    if extension == 'jpeg':
-        extension = 'jpg'
-
-    blender_output = f"{expected_filepath}{frame:04d}.{extension}"
-    desired_output = f"{expected_filepath}.{extension}"
+    # Let Blender tell us exactly what it wrote (correct frame padding AND
+    # the correct extension for every file format, e.g. .exr / .tif / .tga),
+    # and what the un-numbered name should be.
+    blender_output = scene.render.frame_path(frame=frame)
+    desired_output = scene.render.filepath + scene.render.file_extension
 
     try:
-        if os.path.exists(blender_output):
+        if os.path.exists(blender_output) and blender_output != desired_output:
             if os.path.exists(desired_output):
                 os.remove(desired_output)
             os.rename(blender_output, desired_output)

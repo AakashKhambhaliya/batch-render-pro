@@ -22,7 +22,7 @@ import sys
 # Properties must register BEFORE operators/panels that reference them.
 _submodule_names = [
     "utils.texture_swap",
-    "utils.csv_import",
+    "utils.folder_import",
     "utils.naming",
     "properties",
     "operators.texture_ops",

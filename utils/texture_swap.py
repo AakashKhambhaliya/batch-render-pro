@@ -221,17 +221,23 @@ def create_image_sequences(texture_slots, baked_queue, queue_entries, output_dir
         # JPEG is the ONLY format that crashes — convert to PNG.
         # All other formats (WebP, PNG, EXR, TIFF, etc.) are safe
         # and just get copied directly (fast, no quality loss).
-        needs_conversion = False
-        target_ext = '.png'  # default for JPEG conversion
-        for src in frame_sources:
-            if src:
-                if _is_jpeg(src):
-                    needs_conversion = True
-                    target_ext = '.png'
-                else:
-                    # Safe format — keep original extension
-                    target_ext = os.path.splitext(_abs(src))[1]
-                break
+        # Inspect ALL source files, not just the first. A Blender image
+        # sequence requires every frame to share one filename extension, so
+        # if the sources contain JPEG (unsafe) or a mix of formats we must
+        # normalise everything to PNG. Only a single uniform safe format can
+        # be copied directly.
+        present_exts = {
+            os.path.splitext(_abs(src))[1].lower()
+            for src in frame_sources if src
+        }
+        any_jpeg = any(_is_jpeg(src) for src in frame_sources if src)
+
+        if any_jpeg or len(present_exts) != 1:
+            needs_conversion = True
+            target_ext = '.png'
+        else:
+            needs_conversion = False
+            target_ext = present_exts.pop()
 
         if needs_conversion:
             print(f"[BatchRenderPro] JPEG detected → converting to PNG")

@@ -61,8 +61,8 @@ class BRP_OT_RemoveTextureSlot(Operator):
         props = context.scene.batch_render_pro
         idx = props.active_texture_slot_index
         props.texture_slots.remove(idx)
-        # Clamp the active index so it doesn't go out of bounds
-        props.active_texture_slot_index = min(idx, len(props.texture_slots) - 1)
+        # Clamp the active index so it doesn't go out of bounds (and never -1)
+        props.active_texture_slot_index = max(0, min(idx, len(props.texture_slots) - 1))
         return {'FINISHED'}
 
 

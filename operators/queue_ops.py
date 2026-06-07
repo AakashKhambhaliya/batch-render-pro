@@ -10,7 +10,7 @@ import os
 from bpy.props import StringProperty, BoolProperty
 from bpy.types import Operator
 
-from ..utils.csv_import import import_from_folder
+from ..utils.folder_import import import_from_folder
 from ..utils.naming import get_texture_basename
 
 
