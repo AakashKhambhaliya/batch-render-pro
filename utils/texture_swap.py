@@ -218,14 +218,13 @@ def create_image_sequences(texture_slots, baked_queue, queue_entries, output_dir
         os.makedirs(slot_dir, exist_ok=True)
 
         # ── Determine target extension ──
-        # JPEG is the ONLY format that crashes — convert to PNG.
-        # All other formats (WebP, PNG, EXR, TIFF, etc.) are safe
-        # and just get copied directly (fast, no quality loss).
-        # Inspect ALL source files, not just the first. A Blender image
-        # sequence requires every frame to share one filename extension, so
-        # if the sources contain JPEG (unsafe) or a mix of formats we must
-        # normalise everything to PNG. Only a single uniform safe format can
-        # be copied directly.
+        # JPEG is the ONLY format that crashes Cycles' OIIO — it must be
+        # converted to PNG. All other formats (WebP, PNG, EXR, TIFF, ...) are
+        # safe and can be copied directly. Inspect ALL source files, not just
+        # the first: a Blender image sequence requires every frame to share one
+        # filename extension, so if the sources contain JPEG or a mix of
+        # formats we normalise everything to PNG. Only a single uniform safe
+        # format is copied directly (fast, no quality loss).
         present_exts = {
             os.path.splitext(_abs(src))[1].lower()
             for src in frame_sources if src

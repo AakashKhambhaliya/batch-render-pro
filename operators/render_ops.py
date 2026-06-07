@@ -162,6 +162,25 @@ def _on_render_cancel(scene, *args):
     print("[BatchRenderPro] Animation render cancelled.")
 
 
+@bpy.app.handlers.persistent
+def _on_load_post(*args):
+    """
+    Reset stale bake state after a .blend is loaded.
+
+    The baked queue and original-state snapshots live only in module globals,
+    which are wiped when a new file loads. A scene saved while baked would
+    therefore reopen flagged as baked but with no way to restore — and
+    "Clear Bake" would overwrite the timeline with default globals. Clearing
+    the flag makes the UI offer a fresh bake instead.
+    """
+    global _baked_queue
+    _baked_queue = []
+    for scene in bpy.data.scenes:
+        brp = getattr(scene, 'batch_render_pro', None)
+        if brp is not None:
+            brp.is_timeline_baked = False
+
+
 # ─────────────────────────────────────────────
 #  Operators
 # ─────────────────────────────────────────────
@@ -180,6 +199,12 @@ class BRP_OT_BakeTimeline(Operator):
         props = scene.batch_render_pro
 
         # ── Validation ──
+        # Baking again while already baked would snapshot the swapped sequence
+        # images as the "original" state and corrupt restore — require a clear.
+        if props.is_timeline_baked:
+            self.report({'ERROR'}, "Already baked. Use 'Clear Bake' first.")
+            return {'CANCELLED'}
+
         enabled_entries = [i for i, e in enumerate(props.queue_entries) if e.enabled]
         enabled_cameras = [i for i, c in enumerate(props.cameras) if c.enabled]
 
@@ -260,6 +285,10 @@ class BRP_OT_ClearTimeline(Operator):
     bl_label = "Clear Bake"
     bl_options = {'REGISTER', 'UNDO'}
 
+    @classmethod
+    def poll(cls, context):
+        return context.scene.batch_render_pro.is_timeline_baked
+
     def execute(self, context):
         global _baked_queue, _original_camera, _original_filepath, _original_textures
         global _original_frame_start, _original_frame_end, _original_frame_current
@@ -309,6 +338,7 @@ _handler_pairs = [
     ('render_post',       _on_render_post),
     ('render_complete',   _on_render_complete),
     ('render_cancel',     _on_render_cancel),
+    ('load_post',         _on_load_post),
 ]
 
 

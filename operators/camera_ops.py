@@ -18,7 +18,8 @@ class BRP_OT_ScanCameras(Operator):
     def execute(self, context):
         props = context.scene.batch_render_pro
         props.cameras.clear()
-        
+        props.active_camera_index = 0
+
         cameras = [obj for obj in context.scene.objects if obj.type == 'CAMERA']
         
         if not cameras:

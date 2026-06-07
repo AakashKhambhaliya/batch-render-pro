@@ -61,6 +61,7 @@ class BRP_OT_ImportFolder(Operator):
                 mapping.slot_index = 0
                 mapping.image_path = path
 
+        props.active_queue_entry_index = len(props.queue_entries) - 1
         self.report({'INFO'}, f"Imported {len(image_paths)} images from folder.")
         return {'FINISHED'}
 
