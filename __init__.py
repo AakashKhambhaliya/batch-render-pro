@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Batch Render Pro",
     "author": "Antigravity",
-    "version": (1, 0, 0),
+    "version": (1, 0, 1),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > Batch Render",
     "description": "Automated batch rendering with dynamic texture swapping and multi-camera support.",
