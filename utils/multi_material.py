@@ -14,6 +14,8 @@ so the pairing rules can be tested on their own.
 import itertools
 import os
 
+from .folder_import import natural_key
+
 
 # ─────────────────────────────────────────────
 #  Mapping lookups
@@ -121,7 +123,7 @@ def pair_slot_folders(slot_files, mode):
                     seen.add(key)
                     keys.append((key, _stem(path)))
             lookup.append(table)
-        keys.sort(key=lambda k: k[0])
+        keys.sort(key=lambda k: natural_key(k[0]))
         for key, display in keys:
             row = [table.get(key) for table in lookup]
             rows.append((display, row))

@@ -62,6 +62,8 @@ def generate_output_path(
     render_index=0,
     file_format='PNG',
     subfolder_mode='NONE',
+    now=None,
+    create_dirs=True,
 ):
     """
     Generate the full output file path for a single render.
@@ -79,6 +81,8 @@ def generate_output_path(
         render_index (int): Current render index in the batch.
         file_format (str): Output format (used only for subfolder logic, not extension).
         subfolder_mode (str): 'NONE', 'PER_TEXTURE', 'PER_CAMERA', 'PER_BOTH'.
+        now (datetime): Time used for {date}/{time}; defaults to the current time.
+        create_dirs (bool): Create the output folder if it doesn't exist.
 
     Returns:
         str: Full absolute path for the output file (WITHOUT extension).
@@ -87,7 +91,8 @@ def generate_output_path(
     texture_name = get_texture_basename(texture_path) if texture_path else 'no_texture'
     all_paths = [p for p in (texture_paths or []) if p] or ([texture_path] if texture_path else [])
     textures_name = "_".join(get_texture_basename(p) for p in all_paths) or 'no_texture'
-    now = datetime.now()
+    if now is None:
+        now = datetime.now()
 
     token_map = {
         '{name}': sanitize_filename(entry_name) if entry_name else 'unnamed',
@@ -124,7 +129,8 @@ def generate_output_path(
     full_dir = os.path.join(output_dir, subfolder) if subfolder else output_dir
 
     # Ensure the output directory exists
-    os.makedirs(full_dir, exist_ok=True)
+    if create_dirs:
+        os.makedirs(full_dir, exist_ok=True)
 
     return os.path.join(full_dir, filename)
 

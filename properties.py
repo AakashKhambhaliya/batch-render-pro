@@ -212,6 +212,10 @@ class BRP_SceneProperties(PropertyGroup):
 
     # ── Render State ──
     is_timeline_baked: BoolProperty(name="Is Timeline Baked", default=False)
+    # Everything needed to render and to undo a bake, stored as JSON in the
+    # .blend so a baked file can be saved, reopened (or rendered from the
+    # command line) and still be restored with Clear Bake.
+    bake_state: StringProperty(name="Bake State", default="", options={'HIDDEN'})
     total_render_count: IntProperty(name="Total Render Count", default=0)
 
     # ── Render Log ──

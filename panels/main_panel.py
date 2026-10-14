@@ -4,10 +4,13 @@ Batch Render Pro — UI Panels
 Layouts and UILists for the 3D Viewport properties panel.
 """
 
+import os
+
 import bpy
 from bpy.types import Panel, UIList
 
 from ..utils.multi_material import find_mapping
+from ..operators.render_ops import _load_state
 
 # ─────────────────────────────────────────────
 #  UI Lists (Draw items in the property collections)
@@ -188,8 +191,16 @@ class BRP_PT_MainPanel(Panel):
             col.operator("batch_render_pro.clear_timeline", text="Clear Bake", icon='X')
             layout.separator()
             box = layout.box()
-            box.label(text=f"Baked {total_renders} frames to Timeline.", icon='INFO')
+            box.label(text=f"Baked {props.total_render_count} frames to Timeline.", icon='INFO')
             box.label(text="Press CTRL+F12 to Render Animation", icon='RENDER_ANIMATION')
+            if total_renders != props.total_render_count:
+                box.label(text="Queue changed since baking — Clear Bake and bake again",
+                          icon='ERROR')
+            state = _load_state(context.scene)
+            seq_dir = state.get('sequence_dir', '') if state else ''
+            if seq_dir and not os.path.isdir(seq_dir):
+                box.label(text="Texture sequence files are missing — Clear Bake and bake again",
+                          icon='ERROR')
         else:
             col.operator("batch_render_pro.bake_timeline", text=f"Bake to Timeline ({total_renders} Frames)", icon='ACTION')
 

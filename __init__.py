@@ -21,9 +21,9 @@ import sys
 # List of submodule paths relative to this package, in dependency order.
 # Properties must register BEFORE operators/panels that reference them.
 _submodule_names = [
+    "utils.folder_import",
     "utils.multi_material",
     "utils.texture_swap",
-    "utils.folder_import",
     "utils.naming",
     "properties",
     "operators.texture_ops",
