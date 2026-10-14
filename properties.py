@@ -170,16 +170,17 @@ class BRP_SceneProperties(PropertyGroup):
         name="Pairing",
         description="How images from each material's folder are combined into queue entries",
         items=[
-            ('MATCH_NAME', "Match by Name",
-             "One entry per file name; files with the same name in each folder render together "
+            ('BY_ORDER', "1st with 1st, 2nd with 2nd",
+             "Render the 1st image of every material folder together, then the 2nd, and so on "
+             "(files in name order). A folder with fewer images repeats, so a folder with one "
+             "logo applies it to every render"),
+            ('MATCH_NAME', "Match by File Name",
+             "One render per file name; files with the same name in each folder render together "
              "(e.g. Body/red.png + Door/red.png)"),
-            ('BY_ORDER', "By Order",
-             "Pair the 1st file of every folder, then the 2nd, ... A folder with fewer files repeats "
-             "(a single-image folder applies to every entry)"),
             ('ALL_COMBINATIONS', "All Combinations",
              "Every image of each material combined with every image of the others"),
         ],
-        default='MATCH_NAME',
+        default='BY_ORDER',
     )
 
     # ── Cameras ──

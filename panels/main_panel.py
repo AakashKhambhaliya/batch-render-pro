@@ -74,14 +74,20 @@ class BRP_PT_MainPanel(Panel):
         btns.operator("batch_render_pro.scan_materials", text="Scan Materials", icon='VIEWZOOM')
         btns.operator("batch_render_pro.remove_texture_slot", text="", icon='TRASH')
 
-        # Image folder for the selected material (multi-material products)
+        # --- Material folders: one image folder per scene material ---
         slots = props.texture_slots
-        if 0 <= props.active_texture_slot_index < len(slots):
-            active_slot = slots[props.active_texture_slot_index]
-            sub = col.column(align=True)
-            sub.separator()
-            sub.label(text=f"Folder for {active_slot.display_label}:")
-            sub.prop(active_slot, "source_folder", text="")
+        enabled = [(i, sl) for i, sl in enumerate(slots) if sl.enabled]
+        if enabled:
+            sub = box.box().column(align=True)
+            sub.label(text="Image Folder per Material:", icon='FILE_FOLDER')
+            for idx, slot in enabled:
+                sub.label(text=slot.display_label, icon='MATERIAL')
+                sub.prop(slot, "source_folder", text="")
+                sub.separator(factor=0.5)
+            row = sub.row(align=True)
+            row.prop(props, "multi_import_mode", text="")
+            sub.operator("batch_render_pro.build_from_slot_folders",
+                         text="Build Queue from Folders", icon='ADD')
 
 
         # --- 2. Image Queue ---
@@ -98,12 +104,6 @@ class BRP_PT_MainPanel(Panel):
         btns.operator("batch_render_pro.add_queue_entry", text="", icon='ADD')
         btns.operator("batch_render_pro.remove_queue_entry", text="", icon='REMOVE')
         btns.operator("batch_render_pro.clear_queue", text="", icon='X')
-
-        # Multi-material: build entries from each material's folder
-        multi = col.row(align=True)
-        multi.prop(props, "multi_import_mode", text="")
-        multi.operator("batch_render_pro.build_from_slot_folders",
-                       text="Build from Slot Folders", icon='MATERIAL')
 
         # Reorder buttons
         move = col.row(align=True)

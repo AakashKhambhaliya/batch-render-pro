@@ -19,12 +19,12 @@ A **Blender addon** for automated batch rendering with dynamic texture swapping 
 
 When a product has more than one material to swap (e.g. a body and a door panel), every queue entry can carry one image per material. Materials an entry doesn't set keep their original texture.
 
-**From folders (fastest):**
-1. Click **Scan Materials**, then select each material in *Texture Slots to Swap* and set its **Folder** below the list.
-2. Pick a pairing mode and click **Build from Slot Folders**:
-   - **Match by Name** — files with the same name render together (`Body/red.png` + `Door/red.jpg`). A material with no matching file keeps its original texture.
-   - **By Order** — 1st file of each folder together, then the 2nd, … A folder with fewer files repeats, so a folder with one logo puts it on every render.
-   - **All Combinations** — every image of each material with every image of the others.
+**From folders (fastest):** e.g. a *Body* folder and a *Door* folder with 10 images each.
+1. Click **Scan Materials**. Under **Image Folder per Material**, pick a folder for each material (Body → Body folder, Door → Door folder).
+2. Choose how to pair them and click **Build Queue from Folders**:
+   - **1st with 1st, 2nd with 2nd** (default) — render 1 uses the 1st image of every folder, render 2 the 2nd, … Files are taken in name order (`img2` before `img10`), so number them to control the pairing. A folder with fewer images repeats; a folder with a single logo applies it to every render.
+   - **Match by File Name** — files with the same name render together (`Body/red.png` + `Door/red.jpg`). A material with no matching file keeps its original texture.
+   - **All Combinations** — every image of each material with every image of the others (10 × 10 = 100 renders).
 
 **By hand:** select a queue entry; the *Materials in …* box lists every enabled material. Click a material's button to choose its image, or **X** to keep its original. Use **+** to add an empty entry.
 

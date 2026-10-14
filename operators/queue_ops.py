@@ -104,7 +104,7 @@ class BRP_OT_ImportFolder(Operator):
 class BRP_OT_BuildFromSlotFolders(Operator):
     """Create multi-material queue entries from each material slot's image folder"""
     bl_idname = "batch_render_pro.build_from_slot_folders"
-    bl_label = "Build from Slot Folders"
+    bl_label = "Build Queue from Folders"
     bl_description = (
         "Create one queue entry per image set, using the image folder of each "
         "enabled material slot. Slots without a folder keep their original texture"
@@ -160,13 +160,24 @@ class BRP_OT_BuildFromSlotFolders(Operator):
 
         props.active_queue_entry_index = len(props.queue_entries) - len(rows)
 
+        notes = []
+        if props.multi_import_mode == 'BY_ORDER':
+            counts = {len(f) for f in slot_files if f}
+            if len(counts) > 1:
+                detail = ", ".join(f"{slot.display_label}: {len(f)}"
+                                   for (_, slot), f in zip(participating, slot_files) if f)
+                notes.append(f"Folders have different image counts ({detail}); "
+                             f"shorter folders repeat from the start.")
+
         partial = sum(1 for _, row in rows
                       for (_, slot), p in zip(participating, row)
                       if p is None and slot.source_folder)
         msg = f"Created {len(rows)} multi-material entr{'y' if len(rows) == 1 else 'ies'}."
         if partial:
             msg += f" {partial} slot(s) had no matching image and keep their original texture."
-        self.report({'INFO'}, msg)
+        for note in notes:
+            msg += " " + note
+        self.report({'WARNING'} if notes else {'INFO'}, msg)
         return {'FINISHED'}
 
 
