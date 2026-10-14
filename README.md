@@ -12,7 +12,25 @@ A **Blender addon** for automated batch rendering with dynamic texture swapping 
 - 📁 **Folder import** — import a folder of images to build the queue automatically
 - 🎥 **Multi-camera support** — render from multiple cameras in one batch
 - 📋 **Render queue** — build, reorder and run a list of render jobs
+- 🧩 **Multi-material products** — swap a different image on each material of the same product in one render
 - 🏷️ **Flexible output naming**
+
+## Multi-material products
+
+When a product has more than one material to swap (e.g. a body and a door panel), every queue entry can carry one image per material. Materials an entry doesn't set keep their original texture.
+
+**From folders (fastest):**
+1. Click **Scan Materials**, then select each material in *Texture Slots to Swap* and set its **Folder** below the list.
+2. Pick a pairing mode and click **Build from Slot Folders**:
+   - **Match by Name** — files with the same name render together (`Body/red.png` + `Door/red.jpg`). A material with no matching file keeps its original texture.
+   - **By Order** — 1st file of each folder together, then the 2nd, … A folder with fewer files repeats, so a folder with one logo puts it on every render.
+   - **All Combinations** — every image of each material with every image of the others.
+
+**By hand:** select a queue entry; the *Materials in …* box lists every enabled material. Click a material's button to choose its image, or **X** to keep its original. Use **+** to add an empty entry.
+
+**Import Folder** now asks whether each image goes to the *Selected Material* or to *All Enabled Materials* (same image on every material).
+
+Use the `{textures}` naming token to put all of an entry's image names in the output filename.
 
 ## Installation
 

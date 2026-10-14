@@ -7,6 +7,8 @@ Layouts and UILists for the 3D Viewport properties panel.
 import bpy
 from bpy.types import Panel, UIList
 
+from ..utils.multi_material import find_mapping
+
 # ─────────────────────────────────────────────
 #  UI Lists (Draw items in the property collections)
 # ─────────────────────────────────────────────
@@ -16,7 +18,8 @@ class BRP_UL_TextureSlots(UIList):
         row = layout.row(align=True)
         row.prop(item, "enabled", text="")
         row.label(text=item.display_label, icon='TEXTURE')
-        row.label(text=f"({item.material_name})", icon='MATERIAL')
+        if item.source_folder:
+            row.label(text="", icon='FILE_FOLDER')
 
 
 class BRP_UL_QueueEntries(UIList):
@@ -24,9 +27,13 @@ class BRP_UL_QueueEntries(UIList):
         row = layout.row(align=True)
         row.prop(item, "enabled", text="")
         row.prop(item, "name", text="", emboss=False, icon='IMAGE_DATA')
-        # Display primary image path summary
+        # Display primary image, plus how many other materials change
+        mapped = sum(1 for m in item.mappings if m.image_path)
         if item.image_path:
-            row.label(text=bpy.path.basename(item.image_path))
+            text = bpy.path.basename(item.image_path)
+            if mapped > 1:
+                text += f"  +{mapped - 1}"
+            row.label(text=text)
         else:
             row.label(text="<No Image>", icon='ERROR')
 
@@ -64,6 +71,15 @@ class BRP_PT_MainPanel(Panel):
         btns.operator("batch_render_pro.scan_materials", text="Scan Materials", icon='VIEWZOOM')
         btns.operator("batch_render_pro.remove_texture_slot", text="", icon='TRASH')
 
+        # Image folder for the selected material (multi-material products)
+        slots = props.texture_slots
+        if 0 <= props.active_texture_slot_index < len(slots):
+            active_slot = slots[props.active_texture_slot_index]
+            sub = col.column(align=True)
+            sub.separator()
+            sub.label(text=f"Folder for {active_slot.display_label}:")
+            sub.prop(active_slot, "source_folder", text="")
+
 
         # --- 2. Image Queue ---
         layout.separator()
@@ -76,8 +92,15 @@ class BRP_PT_MainPanel(Panel):
         
         btns = col.row(align=True)
         btns.operator("batch_render_pro.import_folder", text="Import Folder", icon='FILE_FOLDER')
+        btns.operator("batch_render_pro.add_queue_entry", text="", icon='ADD')
         btns.operator("batch_render_pro.remove_queue_entry", text="", icon='REMOVE')
         btns.operator("batch_render_pro.clear_queue", text="", icon='X')
+
+        # Multi-material: build entries from each material's folder
+        multi = col.row(align=True)
+        multi.prop(props, "multi_import_mode", text="")
+        multi.operator("batch_render_pro.build_from_slot_folders",
+                       text="Build from Slot Folders", icon='MATERIAL')
 
         # Reorder buttons
         move = col.row(align=True)
@@ -85,6 +108,32 @@ class BRP_PT_MainPanel(Panel):
         op.direction = 'UP'
         op = move.operator("batch_render_pro.move_queue_entry", text="", icon='TRIA_DOWN')
         op.direction = 'DOWN'
+
+        # Per-material images of the selected entry
+        entries = props.queue_entries
+        if len(slots) > 0 and 0 <= props.active_queue_entry_index < len(entries):
+            entry = entries[props.active_queue_entry_index]
+            sub = box.box().column(align=True)
+            sub.label(text=f"Materials in '{entry.name}':", icon='MATERIAL')
+            legacy = len(entry.mappings) == 0 and entry.image_path
+            first_enabled = next((i for i, sl in enumerate(slots) if sl.enabled), -1)
+            for idx, slot in enumerate(slots):
+                if not slot.enabled:
+                    continue
+                row = sub.row(align=True)
+                mapping = find_mapping(entry, slot, idx)
+                if mapping and mapping.image_path:
+                    image_name = bpy.path.basename(mapping.image_path)
+                elif legacy and idx == first_enabled:
+                    image_name = bpy.path.basename(entry.image_path)
+                else:
+                    image_name = "(original)"
+                row.label(text=slot.display_label, icon='TEXTURE')
+                op = row.operator("batch_render_pro.set_slot_image", text=image_name, icon='FILEBROWSER')
+                op.slot_index = idx
+                if mapping and mapping.image_path:
+                    op = row.operator("batch_render_pro.clear_slot_image", text="", icon='X')
+                    op.slot_index = idx
 
 
         # --- 3. Cameras ---
@@ -116,7 +165,7 @@ class BRP_PT_MainPanel(Panel):
         # Token suggestion shortcut buttons
         row = col.row(align=True)
         row.scale_y = 0.8
-        for token in ['{name}', '{texture}', '{camera}', '{index}']:
+        for token in ['{name}', '{texture}', '{textures}', '{camera}', '{index}']:
             op = row.operator("batch_render_pro.insert_naming_token", text=token)
             op.token = token
         

@@ -21,6 +21,8 @@ import bpy
 import os
 import shutil
 
+from .multi_material import find_mapping
+
 
 # ─────────────────────────────────────────────
 #  Path helpers
@@ -137,21 +139,64 @@ _sequence_dir = ""          # Root temp directory for sequences
 _sequence_images = {}       # (mat_name, node_name) → sequence Image datablock
 
 
-def _resolve_slot_image(entry, target_slot_idx, enabled_slots):
+def _resolve_slot_image(entry, target_slot_idx, slot, enabled_slots):
     """
     Determine which image file a given slot should show for a queue entry.
-    """
-    # Check explicit mapping for this slot index
-    for mapping in entry.mappings:
-        if mapping.slot_index == target_slot_idx and mapping.image_path:
-            return mapping.image_path
 
-    # Fallback: primary image_path → first enabled slot only
-    if entry.image_path and enabled_slots:
+    Returns None when the entry does not change this slot — the caller then
+    keeps the slot's original texture for that frame.
+    """
+    mapping = find_mapping(entry, slot, target_slot_idx)
+    if mapping is not None and mapping.image_path:
+        return mapping.image_path
+
+    # Legacy entries without any mappings: the primary image_path drives
+    # the first enabled slot only.
+    if len(entry.mappings) == 0 and entry.image_path and enabled_slots:
         first_enabled_idx = enabled_slots[0][0]
         if target_slot_idx == first_enabled_idx:
             return entry.image_path
 
+    return None
+
+
+def _original_image_source(img, work_dir, key_label):
+    """
+    Return a file path holding the slot's original texture, so frames that
+    don't swap this slot can show it inside the image sequence.
+
+    Uses the image's own file when it is on disk; packed or generated
+    images are written out to a PNG in work_dir.
+    """
+    if img is None:
+        return None
+
+    if img.source == 'FILE' and not img.packed_file:
+        path = _abs(img.filepath)
+        if path and os.path.isfile(path):
+            return path
+
+    try:
+        w, h = img.size
+        if w == 0 or h == 0:
+            return None
+        os.makedirs(work_dir, exist_ok=True)
+        dst = os.path.join(work_dir, f"{bpy.path.clean_name(key_label)}.png")
+        import numpy as np
+        buf = np.empty(w * h * 4, dtype=np.float32)
+        img.pixels.foreach_get(buf)
+        out = bpy.data.images.new("_brp_original", width=w, height=h, alpha=True)
+        try:
+            out.pixels.foreach_set(buf)
+            out.file_format = 'PNG'
+            out.filepath_raw = dst
+            out.save()
+        finally:
+            bpy.data.images.remove(out)
+        if os.path.isfile(dst):
+            return dst
+    except Exception as e:
+        print(f"[BatchRenderPro] Could not export original image '{img.name}': {e}")
     return None
 
 
@@ -206,8 +251,28 @@ def create_image_sequences(texture_slots, baked_queue, queue_entries, output_dir
         frame_sources = []
         for entry_idx, camera_idx in baked_queue:
             entry = queue_entries[entry_idx]
-            img_path = _resolve_slot_image(entry, slot_idx, enabled_slots)
+            img_path = _resolve_slot_image(entry, slot_idx, slot, enabled_slots)
             frame_sources.append(img_path)
+
+        # No entry changes this slot: leave the node untouched.
+        if not any(frame_sources):
+            print(f"[BatchRenderPro] Slot '{slot.display_label}' not used by any "
+                  f"queue entry — keeping its original texture")
+            continue
+
+        # Some entries change this slot and some don't (multi-material
+        # queues). Frames without an image show the original texture.
+        if not all(frame_sources):
+            original_src = _original_image_source(
+                node.image,
+                os.path.join(seq_base, '_originals'),
+                f"{slot_idx}_{slot.material_name}_{slot.node_name}",
+            )
+            if original_src:
+                frame_sources = [src or original_src for src in frame_sources]
+            else:
+                print(f"[BatchRenderPro] WARNING: Could not resolve original image "
+                      f"for '{slot.display_label}'; some frames may be missing")
 
         # Debug: show what was resolved
         for i, src in enumerate(frame_sources):

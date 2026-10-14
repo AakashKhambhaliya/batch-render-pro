@@ -19,6 +19,7 @@ import time
 from bpy.types import Operator
 
 from ..utils.naming import generate_output_path
+from ..utils.multi_material import mapped_images
 from ..utils.texture_swap import (
     capture_current_state,
     create_image_sequences,
@@ -86,6 +87,7 @@ def _set_output_path(scene, entry, camera_item, queue_idx):
         naming_pattern=props.naming_pattern,
         model_name=model_name,
         texture_path=entry.image_path,
+        texture_paths=mapped_images(entry, props.texture_slots),
         camera_name=camera_item.camera_name,
         entry_name=entry.name,
         render_index=queue_idx + 1,
