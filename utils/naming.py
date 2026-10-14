@@ -20,6 +20,7 @@ NAMING_TOKENS = {
     '{name}': 'Custom name of the queue entry (set in the UI)',
     '{model}': 'Name of the active object / model',
     '{texture}': 'Name of the swapped texture file (without extension)',
+    '{textures}': 'Names of all swapped texture files, joined by "_" (multi-material)',
     '{camera}': 'Name of the camera used for this render',
     '{index}': 'Zero-padded index of the current render (e.g., 001)',
     '{slot}': 'Name of the texture slot being swapped',
@@ -54,12 +55,15 @@ def generate_output_path(
     naming_pattern,
     model_name='',
     texture_path='',
+    texture_paths=None,
     camera_name='',
     slot_name='',
     entry_name='',
     render_index=0,
     file_format='PNG',
     subfolder_mode='NONE',
+    now=None,
+    create_dirs=True,
 ):
     """
     Generate the full output file path for a single render.
@@ -70,23 +74,30 @@ def generate_output_path(
         naming_pattern (str): Pattern string with {tokens}.
         model_name (str): Name of the active model/object.
         texture_path (str): File path of the current texture being used.
+        texture_paths (list[str]): All texture files of a multi-material entry.
         camera_name (str): Name of the active camera.
         slot_name (str): Name of the texture slot.
         entry_name (str): Custom name of the queue entry.
         render_index (int): Current render index in the batch.
         file_format (str): Output format (used only for subfolder logic, not extension).
         subfolder_mode (str): 'NONE', 'PER_TEXTURE', 'PER_CAMERA', 'PER_BOTH'.
+        now (datetime): Time used for {date}/{time}; defaults to the current time.
+        create_dirs (bool): Create the output folder if it doesn't exist.
 
     Returns:
         str: Full absolute path for the output file (WITHOUT extension).
     """
     # Build the token replacement map
     texture_name = get_texture_basename(texture_path) if texture_path else 'no_texture'
-    now = datetime.now()
+    all_paths = [p for p in (texture_paths or []) if p] or ([texture_path] if texture_path else [])
+    textures_name = "_".join(get_texture_basename(p) for p in all_paths) or 'no_texture'
+    if now is None:
+        now = datetime.now()
 
     token_map = {
         '{name}': sanitize_filename(entry_name) if entry_name else 'unnamed',
         '{model}': sanitize_filename(model_name) if model_name else 'model',
+        '{textures}': sanitize_filename(textures_name),
         '{texture}': sanitize_filename(texture_name),
         '{camera}': sanitize_filename(camera_name) if camera_name else 'camera',
         '{index}': str(render_index).zfill(3),
@@ -118,7 +129,8 @@ def generate_output_path(
     full_dir = os.path.join(output_dir, subfolder) if subfolder else output_dir
 
     # Ensure the output directory exists
-    os.makedirs(full_dir, exist_ok=True)
+    if create_dirs:
+        os.makedirs(full_dir, exist_ok=True)
 
     return os.path.join(full_dir, filename)
 
@@ -131,6 +143,7 @@ def preview_naming(naming_pattern):
     preview_map = {
         '{name}': 'CustomName',
         '{model}': 'MyModel',
+        '{textures}': 'design_red_door_blue',
         '{texture}': 'design_red',
         '{camera}': 'Camera_Front',
         '{index}': '001',

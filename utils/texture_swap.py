@@ -21,6 +21,8 @@ import bpy
 import os
 import shutil
 
+from .multi_material import find_mapping
+
 
 # ─────────────────────────────────────────────
 #  Path helpers
@@ -62,16 +64,67 @@ def _is_jpeg(path):
     return os.path.splitext(path)[1].lower() in _JPEG_EXTENSIONS
 
 
-def _convert_jpeg_to_png(src_path, dst_path):
-    """
-    Convert a JPEG image to PNG using Blender's image system.
+def _write_byte_png(buf, w, h, dst_path):
+    """Write raw RGBA pixel values (0..1, straight alpha) to an 8-bit PNG
+    without any colour management, so byte textures round-trip exactly."""
+    out = bpy.data.images.new("_brp_convert", width=w, height=h, alpha=True)
+    try:
+        out.pixels.foreach_set(buf)
+        out.file_format = 'PNG'
+        out.filepath_raw = dst_path
+        out.save()
+    finally:
+        bpy.data.images.remove(out)
 
-    Uses save_render() with 'Standard' view transform, which
-    round-trips sRGB textures correctly.  Falls back to pixel-copy
-    if save_render doesn't produce a file.
+
+def _save_render_neutral(img, dst_path, scene):
+    """Save a float image to PNG through save_render with every colour
+    management effect (exposure, gamma, look, curves) switched off."""
+    ris = scene.render.image_settings
+    vs = scene.view_settings
+    saved = {}
+
+    def _set(obj, attr, value):
+        if hasattr(obj, attr):
+            saved[(obj, attr)] = getattr(obj, attr)
+            try:
+                setattr(obj, attr, value)
+            except Exception:
+                saved.pop((obj, attr))
+
+    try:
+        _set(ris, 'media_type', 'IMAGE')          # Blender 5.0+
+        _set(ris, 'color_management', 'FOLLOW_SCENE')
+        _set(ris, 'file_format', 'PNG')
+        _set(ris, 'color_mode', 'RGBA')
+        _set(ris, 'color_depth', '8')
+        _set(vs, 'view_transform', 'Standard')
+        _set(vs, 'look', 'None')
+        _set(vs, 'exposure', 0.0)
+        _set(vs, 'gamma', 1.0)
+        _set(vs, 'use_curve_mapping', False)
+        img.save_render(filepath=dst_path, scene=scene)
+    finally:
+        for (obj, attr), value in reversed(list(saved.items())):
+            try:
+                setattr(obj, attr, value)
+            except Exception:
+                pass
+
+
+def _convert_to_png(src_path, dst_path):
+    """
+    Convert an image (JPEG, or another format in a mixed set) to PNG.
+
+    8-bit sources are copied pixel-for-pixel, so the texture is unchanged
+    regardless of the scene's colour management (exposure, looks, etc.).
+    Float sources (16-bit PNG, EXR, ...) go through save_render with colour
+    management neutralised.
 
     Returns True if the PNG was created successfully.
     """
+    import numpy as np
+
     scene = bpy.context.scene
     img = None
     try:
@@ -81,45 +134,17 @@ def _convert_jpeg_to_png(src_path, dst_path):
             print(f"[BatchRenderPro] ERROR: Could not decode {src_path}")
             return False
 
-        # ── Method 1: save_render with Standard view transform ──
-        ris = scene.render.image_settings
-        cm = scene.view_settings
+        if img.is_float:
+            _save_render_neutral(img, dst_path, scene)
+        else:
+            buf = np.empty(w * h * 4, dtype=np.float32)
+            img.pixels.foreach_get(buf)
+            _write_byte_png(buf, w, h, dst_path)
 
-        orig_format = ris.file_format
-        orig_mode = ris.color_mode
-        orig_depth = ris.color_depth
-        orig_transform = cm.view_transform
-
-        ris.file_format = 'PNG'
-        ris.color_mode = 'RGBA'
-        ris.color_depth = '8'
-        cm.view_transform = 'Standard'
-
-        try:
-            img.save_render(filepath=dst_path, scene=scene)
-        finally:
-            ris.file_format = orig_format
-            ris.color_mode = orig_mode
-            ris.color_depth = orig_depth
-            cm.view_transform = orig_transform
-
-        if os.path.exists(dst_path) and os.path.getsize(dst_path) > 100:
-            return True
-
-        # ── Method 2: Pixel copy fallback ──
-        print(f"[BatchRenderPro] save_render failed, trying pixel copy...")
-        pixels = list(img.pixels)
-        out_img = bpy.data.images.new("_brp_convert", width=w, height=h, alpha=True)
-        out_img.pixels = pixels
-        out_img.file_format = 'PNG'
-        out_img.filepath_raw = dst_path
-        out_img.save()
-        bpy.data.images.remove(out_img)
-
-        return os.path.exists(dst_path) and os.path.getsize(dst_path) > 100
+        return os.path.exists(dst_path) and os.path.getsize(dst_path) > 0
 
     except Exception as e:
-        print(f"[BatchRenderPro] JPEG→PNG conversion error: {e}")
+        print(f"[BatchRenderPro] PNG conversion error for {src_path}: {e}")
         return False
     finally:
         if img is not None:
@@ -133,25 +158,75 @@ def _convert_jpeg_to_png(src_path, dst_path):
 #  Native Image Sequence Builder
 # ─────────────────────────────────────────────
 
-_sequence_dir = ""          # Root temp directory for sequences
-_sequence_images = {}       # (mat_name, node_name) → sequence Image datablock
+def _node_tree(mat):
+    """Material node tree, or None. (Material.use_nodes is deprecated in
+    Blender 5 and slated for removal; node_tree alone is the reliable test.)"""
+    if mat is None:
+        return None
+    if not getattr(mat, 'use_nodes', True):
+        return None
+    return mat.node_tree
 
 
-def _resolve_slot_image(entry, target_slot_idx, enabled_slots):
+# Image sources that can be replaced by a sequence. UDIM tiles, movies and
+# existing sequences can't be swapped this way.
+_SWAPPABLE_SOURCES = {'FILE', 'GENERATED'}
+
+
+def _resolve_slot_image(entry, target_slot_idx, slot, enabled_slots):
     """
     Determine which image file a given slot should show for a queue entry.
-    """
-    # Check explicit mapping for this slot index
-    for mapping in entry.mappings:
-        if mapping.slot_index == target_slot_idx and mapping.image_path:
-            return mapping.image_path
 
-    # Fallback: primary image_path → first enabled slot only
-    if entry.image_path and enabled_slots:
+    Returns None when the entry does not change this slot — the caller then
+    keeps the slot's original texture for that frame.
+    """
+    mapping = find_mapping(entry, slot, target_slot_idx)
+    if mapping is not None and mapping.image_path:
+        return mapping.image_path
+
+    # Legacy entries without any mappings: the primary image_path drives
+    # the first enabled slot only.
+    if len(entry.mappings) == 0 and entry.image_path and enabled_slots:
         first_enabled_idx = enabled_slots[0][0]
         if target_slot_idx == first_enabled_idx:
             return entry.image_path
 
+    return None
+
+
+def _original_image_source(img, work_dir, key_label):
+    """
+    Return a file path holding the slot's original texture, so frames that
+    don't swap this slot can show it inside the image sequence.
+
+    Uses the image's own file when it is on disk; packed or generated
+    images are written out to a PNG in work_dir.
+    """
+    if img is None:
+        return None
+
+    if img.source == 'FILE' and not img.packed_file:
+        path = _abs(img.filepath)
+        if path and os.path.isfile(path):
+            return path
+
+    try:
+        w, h = img.size
+        if w == 0 or h == 0:
+            return None
+        os.makedirs(work_dir, exist_ok=True)
+        dst = os.path.join(work_dir, f"{bpy.path.clean_name(key_label)}.png")
+        if img.is_float:
+            _save_render_neutral(img, dst, bpy.context.scene)
+        else:
+            import numpy as np
+            buf = np.empty(w * h * 4, dtype=np.float32)
+            img.pixels.foreach_get(buf)
+            _write_byte_png(buf, w, h, dst)
+        if os.path.isfile(dst):
+            return dst
+    except Exception as e:
+        print(f"[BatchRenderPro] Could not export original image '{img.name}': {e}")
     return None
 
 
@@ -162,8 +237,11 @@ def create_image_sequences(texture_slots, baked_queue, queue_entries, output_dir
     Converts source images to PNG (to avoid OIIO JPEG threading crash),
     copies them as sequentially numbered files, and configures the
     Image Texture node to use the sequence.
+
+    Returns (sequence_dir, [names of the sequence Image datablocks]) so the
+    caller can store them in the .blend and clean up later.
     """
-    global _sequence_dir, _sequence_images
+    sequence_names = []
 
     # Clean up any previous run
     seq_base = os.path.join(output_dir, '_brp_sequences')
@@ -173,31 +251,33 @@ def create_image_sequences(texture_slots, baked_queue, queue_entries, output_dir
         except Exception:
             pass
     os.makedirs(seq_base, exist_ok=True)
-    _sequence_dir = seq_base
-    _sequence_images = {}
 
     total_frames = len(baked_queue)
     if total_frames == 0:
         print("[BatchRenderPro] ERROR: No frames in baked queue")
-        return
+        return seq_base, sequence_names
 
     # Collect enabled slots
     enabled_slots = [(i, s) for i, s in enumerate(texture_slots) if s.enabled]
     if not enabled_slots:
         print("[BatchRenderPro] ERROR: No enabled texture slots")
-        return
+        return seq_base, sequence_names
 
     print(f"[BatchRenderPro] Building sequences: {total_frames} frames, "
           f"{len(enabled_slots)} slot(s)")
 
     for slot_idx, slot in enabled_slots:
-        mat = bpy.data.materials.get(slot.material_name)
-        if not mat or not mat.use_nodes:
+        tree = _node_tree(bpy.data.materials.get(slot.material_name))
+        if tree is None:
             print(f"[BatchRenderPro] WARNING: Material '{slot.material_name}' not found")
             continue
-        node = mat.node_tree.nodes.get(slot.node_name)
+        node = tree.nodes.get(slot.node_name)
         if not node or node.type != 'TEX_IMAGE' or not node.image:
             print(f"[BatchRenderPro] WARNING: Node '{slot.node_name}' not found or has no image")
+            continue
+        if node.image.source not in _SWAPPABLE_SOURCES:
+            print(f"[BatchRenderPro] WARNING: '{slot.display_label}' uses a "
+                  f"{node.image.source} image, which can't be swapped — skipped")
             continue
 
         key = (slot.material_name, slot.node_name)
@@ -206,8 +286,28 @@ def create_image_sequences(texture_slots, baked_queue, queue_entries, output_dir
         frame_sources = []
         for entry_idx, camera_idx in baked_queue:
             entry = queue_entries[entry_idx]
-            img_path = _resolve_slot_image(entry, slot_idx, enabled_slots)
+            img_path = _resolve_slot_image(entry, slot_idx, slot, enabled_slots)
             frame_sources.append(img_path)
+
+        # No entry changes this slot: leave the node untouched.
+        if not any(frame_sources):
+            print(f"[BatchRenderPro] Slot '{slot.display_label}' not used by any "
+                  f"queue entry — keeping its original texture")
+            continue
+
+        # Some entries change this slot and some don't (multi-material
+        # queues). Frames without an image show the original texture.
+        if not all(frame_sources):
+            original_src = _original_image_source(
+                node.image,
+                os.path.join(seq_base, '_originals'),
+                f"{slot_idx}_{slot.material_name}_{slot.node_name}",
+            )
+            if original_src:
+                frame_sources = [src or original_src for src in frame_sources]
+            else:
+                print(f"[BatchRenderPro] WARNING: Could not resolve original image "
+                      f"for '{slot.display_label}'; some frames may be missing")
 
         # Debug: show what was resolved
         for i, src in enumerate(frame_sources):
@@ -239,7 +339,7 @@ def create_image_sequences(texture_slots, baked_queue, queue_entries, output_dir
             target_ext = present_exts.pop()
 
         if needs_conversion:
-            print(f"[BatchRenderPro] JPEG detected → converting to PNG")
+            print(f"[BatchRenderPro] JPEG or mixed formats → converting to PNG")
         else:
             print(f"[BatchRenderPro] Safe format ({target_ext}) → direct copy")
 
@@ -270,7 +370,7 @@ def create_image_sequences(texture_slots, baked_queue, queue_entries, output_dir
 
             if needs_conversion:
                 # JPEG → PNG conversion
-                success = _convert_jpeg_to_png(abs_src, dst)
+                success = _convert_to_png(abs_src, dst)
                 if success:
                     converted_cache[abs_src] = dst
                     converted_count += 1
@@ -336,7 +436,7 @@ def create_image_sequences(texture_slots, baked_queue, queue_entries, output_dir
         iu.use_cyclic = False
         iu.use_auto_refresh = True
 
-        _sequence_images[key] = seq_img
+        sequence_names.append(seq_img.name)
 
         print(f"[BatchRenderPro] ✓ Sequence ready: {seq_img.name}")
         print(f"[BatchRenderPro]   source={seq_img.source}, "
@@ -345,42 +445,45 @@ def create_image_sequences(texture_slots, baked_queue, queue_entries, output_dir
         print(f"[BatchRenderPro]   node.image.name={node.image.name}, "
               f"filepath={node.image.filepath}")
 
+    return seq_base, sequence_names
 
-def cleanup_image_sequences(original_state):
+
+def cleanup_image_sequences(original_state, sequence_dir="", sequence_image_names=()):
     """
     Restore original Image datablocks to nodes, remove sequence
     images from bpy.data, and delete the temp directory.
     """
-    global _sequence_dir, _sequence_images
-
-    # Restore original images to nodes
+    # Restore original images to nodes (and their fake-user flag)
     for entry in original_state:
-        mat = bpy.data.materials.get(entry['material_name'])
-        if not mat or not mat.use_nodes:
+        original_img = bpy.data.images.get(entry['image_name'])
+        if original_img is not None and 'had_fake_user' in entry:
+            original_img.use_fake_user = entry['had_fake_user']
+        tree = _node_tree(bpy.data.materials.get(entry['material_name']))
+        if tree is None:
             continue
-        node = mat.node_tree.nodes.get(entry['node_name'])
+        node = tree.nodes.get(entry['node_name'])
         if not node:
             continue
-        original_img = bpy.data.images.get(entry['image_name'])
         if original_img:
             node.image = original_img
 
     # Remove sequence images from bpy.data.images
-    for seq_img in _sequence_images.values():
-        try:
-            bpy.data.images.remove(seq_img)
-        except Exception:
-            pass
-    _sequence_images = {}
+    for name in sequence_image_names:
+        seq_img = bpy.data.images.get(name)
+        if seq_img is not None:
+            try:
+                bpy.data.images.remove(seq_img)
+            except Exception:
+                pass
 
-    # Delete temp directory
-    if _sequence_dir and os.path.exists(_sequence_dir):
+    # Delete temp directory (only ever our own _brp_sequences folder)
+    if (sequence_dir and os.path.basename(os.path.normpath(sequence_dir)) == '_brp_sequences'
+            and os.path.exists(sequence_dir)):
         try:
-            shutil.rmtree(_sequence_dir)
+            shutil.rmtree(sequence_dir)
             print(f"[BatchRenderPro] Cleaned up temp sequences")
         except Exception as e:
             print(f"[BatchRenderPro] Could not remove temp dir: {e}")
-    _sequence_dir = ""
 
 
 # ─────────────────────────────────────────────
@@ -398,10 +501,11 @@ def find_image_texture_nodes(obj):
 
     for mat_slot in obj.material_slots:
         mat = mat_slot.material
-        if mat is None or not mat.use_nodes:
+        tree = _node_tree(mat)
+        if tree is None:
             continue
 
-        for node in mat.node_tree.nodes:
+        for node in tree.nodes:
             if node.type == 'TEX_IMAGE' and node.image is not None:
                 label = node.label if node.label else node.name
                 results.append({
@@ -449,15 +553,16 @@ def capture_current_state(slots):
     for slot in slots:
         if not slot.enabled:
             continue
-        mat = bpy.data.materials.get(slot.material_name)
-        if mat is None or not mat.use_nodes:
+        tree = _node_tree(bpy.data.materials.get(slot.material_name))
+        if tree is None:
             continue
-        node = mat.node_tree.nodes.get(slot.node_name)
+        node = tree.nodes.get(slot.node_name)
         if node is None or node.image is None:
             continue
         state.append({
             'material_name': slot.material_name,
             'node_name': slot.node_name,
             'image_name': node.image.name,
+            'had_fake_user': node.image.use_fake_user,
         })
     return state

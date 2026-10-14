@@ -22,6 +22,16 @@ class BRP_OT_ScanMaterials(Operator):
         props = context.scene.batch_render_pro
         slots = props.texture_slots
 
+        if props.is_timeline_baked:
+            self.report({'ERROR'}, "Clear Bake before re-scanning materials.")
+            return {'CANCELLED'}
+
+        # Remember per-slot settings so a re-scan doesn't reset them
+        previous = {
+            (s.material_name, s.node_name): (s.enabled, s.source_folder)
+            for s in slots
+        }
+
         # Clear existing slots
         slots.clear()
         props.active_texture_slot_index = 0
@@ -39,7 +49,9 @@ class BRP_OT_ScanMaterials(Operator):
             slot.node_name = entry['node'].name
             slot.object_name = entry['object'].name
             slot.display_label = entry['label']
-            slot.enabled = True
+            enabled, folder = previous.get((slot.material_name, slot.node_name), (True, ""))
+            slot.enabled = enabled
+            slot.source_folder = folder
 
         self.report({'INFO'}, f"Found {len(results)} Image Texture node(s).")
         return {'FINISHED'}

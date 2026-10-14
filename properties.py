@@ -46,6 +46,14 @@ class BRP_TextureSlotItem(PropertyGroup):
         name="Object",
         description="Name of the object this material belongs to",
     )
+    source_folder: StringProperty(
+        name="Image Folder",
+        description=(
+            "Folder of images for this material. Used by 'Build from Slot "
+            "Folders' to create multi-material queue entries"
+        ),
+        subtype='DIR_PATH',
+    )
 
 
 # ─────────────────────────────────────────────
@@ -57,8 +65,18 @@ class BRP_ImageMapping(PropertyGroup):
 
     slot_index: IntProperty(
         name="Slot Index",
-        description="Index into the texture slots collection",
+        description="Index into the texture slots collection (legacy; used when material/node are empty)",
         default=0,
+    )
+    # Stable identity of the target slot. Survives re-scanning materials,
+    # which can reorder the slot list and invalidate slot_index.
+    material_name: StringProperty(
+        name="Material",
+        description="Material containing the target Image Texture node",
+    )
+    node_name: StringProperty(
+        name="Node",
+        description="Name of the target Image Texture node",
     )
     image_path: StringProperty(
         name="Image Path",
@@ -84,13 +102,15 @@ class BRP_QueueEntryItem(PropertyGroup):
         description="Display name for this queue entry",
         default="Entry",
     )
-    # For simple single-slot mode, store the primary image path directly
+    # Primary image: shown in the queue list and used for the {texture} token.
+    # For multi-material entries it mirrors the first mapped slot's image.
     image_path: StringProperty(
         name="Image",
         description="Primary image file path",
         subtype='FILE_PATH',
     )
-    # For multi-slot mode, use the mappings collection
+    # One mapping per material slot this entry changes. Slots without a
+    # mapping keep their original texture for this entry.
     mappings: CollectionProperty(type=BRP_ImageMapping)
 
 
@@ -146,6 +166,22 @@ class BRP_SceneProperties(PropertyGroup):
     # ── Image Queue ──
     queue_entries: CollectionProperty(type=BRP_QueueEntryItem)
     active_queue_entry_index: IntProperty(name="Active Queue Entry", default=0)
+    multi_import_mode: EnumProperty(
+        name="Pairing",
+        description="How images from each material's folder are combined into queue entries",
+        items=[
+            ('BY_ORDER', "1st with 1st, 2nd with 2nd",
+             "Render the 1st image of every material folder together, then the 2nd, and so on "
+             "(files in name order). A folder with fewer images repeats, so a folder with one "
+             "logo applies it to every render"),
+            ('MATCH_NAME', "Match by File Name",
+             "One render per file name; files with the same name in each folder render together "
+             "(e.g. Body/red.png + Door/red.png)"),
+            ('ALL_COMBINATIONS', "All Combinations",
+             "Every image of each material combined with every image of the others"),
+        ],
+        default='BY_ORDER',
+    )
 
     # ── Cameras ──
     cameras: CollectionProperty(type=BRP_CameraItem)
@@ -160,7 +196,7 @@ class BRP_SceneProperties(PropertyGroup):
     )
     naming_pattern: StringProperty(
         name="Naming Pattern",
-        description="Filename pattern. Tokens: {name}, {model}, {texture}, {camera}, {index}, {date}, {time}",
+        description="Filename pattern. Tokens: {name}, {model}, {texture}, {textures}, {camera}, {index}, {date}, {time}",
         default="{name}_{camera}_{index}",
     )
     subfolder_mode: EnumProperty(
@@ -177,6 +213,10 @@ class BRP_SceneProperties(PropertyGroup):
 
     # ── Render State ──
     is_timeline_baked: BoolProperty(name="Is Timeline Baked", default=False)
+    # Everything needed to render and to undo a bake, stored as JSON in the
+    # .blend so a baked file can be saved, reopened (or rendered from the
+    # command line) and still be restored with Clear Bake.
+    bake_state: StringProperty(name="Bake State", default="", options={'HIDDEN'})
     total_render_count: IntProperty(name="Total Render Count", default=0)
 
     # ── Render Log ──

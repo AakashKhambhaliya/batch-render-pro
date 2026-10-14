@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Batch Render Pro",
     "author": "Antigravity",
-    "version": (1, 0, 1),
+    "version": (1, 1, 0),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar (N) > Batch Render",
-    "description": "Automated batch rendering with dynamic texture swapping and multi-camera support.",
+    "description": "Automated batch rendering with dynamic texture swapping, multi-material products and multi-camera support.",
     "warning": "",
     "doc_url": "",
     "category": "Render",
@@ -21,8 +21,9 @@ import sys
 # List of submodule paths relative to this package, in dependency order.
 # Properties must register BEFORE operators/panels that reference them.
 _submodule_names = [
-    "utils.texture_swap",
     "utils.folder_import",
+    "utils.multi_material",
+    "utils.texture_swap",
     "utils.naming",
     "properties",
     "operators.texture_ops",
